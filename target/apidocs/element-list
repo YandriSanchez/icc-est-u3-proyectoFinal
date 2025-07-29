@@ -1,0 +1,5 @@
+org.example
+org.example.controller
+org.example.model
+org.example.solver
+org.example.view
