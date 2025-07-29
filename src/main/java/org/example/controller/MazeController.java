@@ -1,17 +1,15 @@
 package org.example.controller;
 
-import java.awt.HeadlessException;
-import java.awt.event.ActionEvent;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.JOptionPane;
 import javax.swing.SwingWorker;
-import javax.swing.Timer;
 
 import org.example.model.Cell;
 import org.example.model.Maze;
@@ -50,9 +48,12 @@ public final class MazeController {
     // Listas para la animación
     public List<Cell> currentVisitedCellsAnimation;
     public List<Cell> currentPathCellsAnimation;
+    private SwingWorker<Void, Cell> animationWorker;
     public AtomicInteger animationIndex;
     public AtomicInteger pathAnimationIndex;
-    private Timer animationTimer;
+    public AtomicInteger visitedIndex;
+    private boolean isAnimationRunning = false;
+    private volatile boolean isAnimatingPathPhase = false;
     private final int ANIMATION_DELAY_MS = 130;// Retraso en milisegundos
 
     /**
@@ -77,6 +78,7 @@ public final class MazeController {
 
         this.animationIndex = new AtomicInteger(0);
         this.pathAnimationIndex = new AtomicInteger(0);
+        this.visitedIndex = new AtomicInteger(0);
     }
 
     /**
@@ -96,139 +98,262 @@ public final class MazeController {
     }
 
     /**
-     * Inicia el proceso de resolución y visualización del laberinto en modo AUTOMÁTICO.
-     * Muestra celdas visitadas y, si se encuentra, el camino.
-     * Si no se selecciona inicio o fin, muestra una advertencia.
+     * Inicia el proceso de resolución del laberinto usando el algoritmo seleccionado.
+     * Muestra el camino encontrado y las celdas visitadas.
      *
-     * @param solverType El nombre del algoritmo seleccionado (ej. "BFS", "Metodo Recursivo").
+     * @param algorithmName El nombre del algoritmo a utilizar.
      */
-    public void startSolvingMaze(String solverType) {
+    public void startSolvingMaze(String algorithmName) {
         if (startCell == null || endCell == null) {
-            JOptionPane.showMessageDialog(view,
-                "Por favor, selecciona las celdas de inicio y fin antes de resolver.",
-                "Advertencia", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-        
-        // Limpia cualquier visualización previa y sincroniza los muros
-        resetPathColorsInView(); 
-        syncViewToModelWalls();
-
-        MazeSolver solver = solversMap.get(solverType);
-        if (solver == null) {
-            JOptionPane.showMessageDialog(view, "Algoritmo de resolución no encontrado.", "Error", JOptionPane.ERROR_MESSAGE);
+            showMessage("Por favor, selecciona las celdas de inicio y fin antes de resolver.", "Advertencia", "WARNING");
             return;
         }
 
-        new SwingWorker<MazeResult, Void>() {
+        // Obtener el estado actual de los muros desde la vista
+        boolean[][] grid = view.getCellPanelsState();
+        maze.setGrid(grid); // Actualizar el grid del modelo con los muros de la vista
+
+        MazeSolver solver;
+        long startTime;
+        long endTime;
+        MazeResult result;
+
+        // Determinar el solver y ejecutar
+        switch (algorithmName) {
+            case "Metodo Recursivo" -> {
+                solver = new MazeSolverRecursive();
+                startTime = System.nanoTime();
+                result = solver.getPath(maze.getGrid(), startCell, endCell);
+                endTime = System.nanoTime();
+                processAndDisplayResults(result, "Metodo Recursivo", (endTime - startTime));
+            }
+            case "Metodo Recursivo Completo" -> {
+                solver = new MazeSolverRecursiveComplet();
+                startTime = System.nanoTime();
+                result = solver.getPath(maze.getGrid(), startCell, endCell);
+                endTime = System.nanoTime();
+                processAndDisplayResults(result, "Metodo Recursivo Completo", (endTime - startTime));
+            }
+            case "Metodo Recursivo Completo BT" -> {
+                solver = new MazeSolverRecursiveCompletBT();
+                startTime = System.nanoTime();
+                result = solver.getPath(maze.getGrid(), startCell, endCell);
+                endTime = System.nanoTime();
+                processAndDisplayResults(result, "Metodo Recursivo Completo BT", (endTime - startTime));
+            }
+            case "Metodo BFS" -> {
+                solver = new MazeSolverBFS();
+                startTime = System.nanoTime();
+                result = solver.getPath(maze.getGrid(), startCell, endCell);
+                endTime = System.nanoTime();
+                processAndDisplayResults(result, "Metodo BFS", (endTime - startTime));
+            }
+            case "Metodo DFS" -> {
+                solver = new MazeSolverDFS();
+                startTime = System.nanoTime();
+                result = solver.getPath(maze.getGrid(), startCell, endCell);
+                endTime = System.nanoTime();
+                processAndDisplayResults(result, "Metodo DFS", (endTime - startTime));
+            }
+            default -> {
+                showMessage("Algoritmo no reconocido.", "Error", "ERROR");
+            }
+        }
+    }
+
+    /**
+     * Procesa los resultados de un algoritmo de resolución y los muestra de forma animada.
+     * Este método ahora inicia un SwingWorker para la animación gradual.
+     *
+     * @param result El MazeResult obtenido del solver.
+     * @param methodName El nombre del método que generó el resultado.
+     * @param elapsedTime El tiempo que tardó el algoritmo en nanosegundos.
+     */
+    private void processAndDisplayResults(MazeResult result, String methodName, long elapsedTime) {
+        // Si ya hay una animación corriendo, la detenemos o mostramos un mensaje
+        if (isAnimationRunning) {
+            showMessage("Ya hay una animación en curso. Deteniendo la animación anterior para iniciar una nueva.", "Advertencia", "WARNING");
+            stopAnimation(); // Detener la animación anterior
+            // Esperar un breve momento para que el hilo anterior termine de limpiar si es necesario
+            try { Thread.sleep(50); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+        }
+
+        // Limpiar colores previos y reiniciar índices de animación para la nueva ejecución
+        resetPathColorsInView(); // Llama a MazeView para limpiar el panel
+        resetAnimationIndices(); // Reinicia los índices y las listas para la animación manual, aunque no se usen aquí directamente
+        isAnimationRunning = true; // Marcamos que una animación automática está activa
+        isAnimatingPathPhase = false; // Aseguramos que empezamos en la fase de celdas visitadas
+
+
+        // Almacenar los resultados para que el SwingWorker los use.
+        // Convertimos el Set<Cell> a List<Cell> para garantizar un orden de publicación predecible.
+        // Asegúrate de que MazeResult.getVisited() devuelve Set<Cell>
+        this.currentVisitedCellsAnimation = new ArrayList<>(result.getVisited());
+        this.currentPathCellsAnimation = result.getPath();
+
+        // Crear y ejecutar el SwingWorker para la animación
+        animationWorker = new SwingWorker<Void, Cell>() {
             @Override
-            protected MazeResult doInBackground() throws Exception {
-                // Ejecuta el algoritmo en un hilo de fondo
-                return solver.getPath(maze.getGrid(), startCell, endCell);
+            protected Void doInBackground() throws Exception {
+                // 1. Animar PRIMERO todas las celdas visitadas
+                for (Cell cell : currentVisitedCellsAnimation) {
+                    if (isCancelled()) return null; // Salir si la animación se cancela
+                    // Publica la celda solo si no es inicio/fin o muro
+                    if (!cell.equals(startCell) && !cell.equals(endCell) && maze.getGrid()[cell.getRow()][cell.getCol()]) {
+                        publish(cell); // Envía la celda al método process (en el EDT)
+                    }
+                    Thread.sleep(ANIMATION_DELAY_MS); // Retardo para el efecto de animación
+                }
+
+                if (!isCancelled()) {
+                    Thread.sleep(ANIMATION_DELAY_MS); // Por ejemplo, el triple del delay normal
+                    isAnimatingPathPhase = true; // Cambiamos a la fase de animación del camino
+                }
+
+                // 2. Animar LUEGO el camino final
+                if (currentPathCellsAnimation != null && !currentPathCellsAnimation.isEmpty()) {
+                    for (Cell cell : currentPathCellsAnimation) {
+                        if (isCancelled()) return null; // Salir si la animación se cancela
+                        // Solo publica la celda del camino si no es inicio o fin
+                        if (!cell.equals(startCell) && !cell.equals(endCell)) {
+                            publish(cell); // Envía la celda al método process (en el EDT)
+                        }
+                        Thread.sleep(ANIMATION_DELAY_MS); // Retardo para el efecto de animación
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            protected void process(List<Cell> chunks) {
+                // Este método se ejecuta en el Event Dispatch Thread (EDT)
+                // Se encarga de actualizar la interfaz de usuario de forma segura.
+                for (Cell cell : chunks) {
+                    // Lógica modificada para pintar según la fase actual
+                    if (isAnimatingPathPhase) { // Si estamos en la fase de pintar el camino
+                        if (!cell.equals(startCell) && !cell.equals(endCell)) {
+                            view.updateCell(cell.getRow(), cell.getCol(), MazeView.PATH_COLOR);
+                        }
+                    } else { // Si estamos en la fase de pintar las celdas visitadas
+                        // Solo pinta si no es inicio/fin y no es un muro
+                        if (!cell.equals(startCell) && !cell.equals(endCell) && maze.getGrid()[cell.getRow()][cell.getCol()]) {
+                            view.updateCell(cell.getRow(), cell.getCol(), MazeView.VISITED_COLOR);
+                        }
+                    }
+                    // Asegurar que inicio y fin siempre mantengan sus colores correctos
+                    view.updateCell(startCell.getRow(), startCell.getCol(), MazeView.START_COLOR);
+                    view.updateCell(endCell.getRow(), endCell.getCol(), MazeView.END_COLOR);
+                }
             }
 
             @Override
             protected void done() {
+                // Este método se ejecuta en el EDT cuando doInBackground termina o ha sido cancelado.
+                isAnimationRunning = false; // La animación ha finalizado.
+                isAnimatingPathPhase = false; // Resetear la bandera de fase al finalizar
+
+                // Asegurar que las celdas de inicio y fin siempre tengan el color correcto al final
+                view.updateCell(startCell.getRow(), startCell.getCol(), MazeView.START_COLOR);
+                view.updateCell(endCell.getRow(), endCell.getCol(), MazeView.END_COLOR);
+
                 try {
-                    MazeResult result = get();
-                    // Almacena las listas completas para la animación
-                    currentVisitedCellsAnimation = new ArrayList<>(result.getVisited());
-                    currentPathCellsAnimation = result.getPath(); 
-
-                    // Reinicia los índices de animación para empezar desde el principio
-                    animationIndex.set(0);
-                    pathAnimationIndex.set(0); 
-
-                    // Detiene cualquier animación anterior si está corriendo
-                    if (animationTimer != null && animationTimer.isRunning()) {
-                        animationTimer.stop();
-                    }
-
-                    // Inicia el timer para la animación automática SIEMPRE que haya celdas visitadas.
-                    // Si currentVisitedCellsAnimation está vacío, simplemente el timer no animará nada
-                    // y el JOptionPane de "Sin Exploración" o "Sin Camino" se manejará
-                    // en el método animateNextCell() cuando se determine que no hay más celdas que pintar.
-                    if (!currentVisitedCellsAnimation.isEmpty()) {
-                        animationTimer = new Timer(ANIMATION_DELAY_MS, (ActionEvent e) -> {
-                            animateNextCell();
-                        });
-                        animationTimer.start();
+                    // Llamar a get() para propagar cualquier excepción que haya ocurrido en doInBackground
+                    get();
+                    // Mostrar el mensaje final y guardar los resultados SOLO UNA VEZ al final de la animación
+                    if (result.getPath() != null && !result.getPath().isEmpty()) {
+                        showMessage("Camino encontrado por " + methodName + " en " + elapsedTime + " ns. Longitud: " + (result.getPath().size() - 1) + " celdas.", "Éxito", "INFORMATION");
+                        view.addSolverResult(methodName, result.getPath().size() - 1, elapsedTime);
                     } else {
-                        // Si currentVisitedCellsAnimation está vacío, llama a animateNextCell una vez
-                        // para que maneje el mensaje de "sin exploración" o "sin camino"
-                        // si no hay nada que animar.
-                        animateNextCell(); 
+                        showMessage("No se encontró camino por " + methodName + " en " + elapsedTime + " ns.", "Sin Camino", "INFORMATION");
+                        view.addSolverResult(methodName, -1, elapsedTime);
                     }
-                } catch (HeadlessException | InterruptedException | ExecutionException e) {
-                    JOptionPane.showMessageDialog(view, "Error al resolver el laberinto: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                } catch (InterruptedException | ExecutionException e) { // Catch ambas excepciones
+                    // Capturar y manejar excepciones del SwingWorker (ej. InterruptedException si se cancela)
+                    if (e instanceof java.util.concurrent.CancellationException) {
+                        System.out.println("Animación de '" + methodName + "' cancelada.");
+                        showMessage("La animación de '" + methodName + "' fue cancelada.", "Cancelado", "INFORMATION");
+                    } else {
+                        showMessage("Error inesperado durante la animación de '" + methodName + "': " + e.getMessage(), "Error", "ERROR");
+                    }
                 }
             }
-        }.execute();
+        };
+
+        animationWorker.execute(); // Inicia el SwingWorker para que la animación comience.
     }
 
     /**
-     * Realiza un solo paso de la animación del laberinto en modo "Paso a Paso".
-     * Recalcula el camino si es la primera vez o si los índices se resetearon,
-     * y luego pinta la siguiente celda en la secuencia. Las celdas se acumulan.
-     *
-     * @param solverType El nombre del algoritmo a usar (ej. "DFS", "BFS").
+     * Realiza un solo paso en la animación del algoritmo de resolución.
+     * @param algorithmName El nombre del algoritmo para la animación.
      */
-    public void performSingleStep(String solverType) {
+    public void performSingleStep(String algorithmName) {
         if (startCell == null || endCell == null) {
-            JOptionPane.showMessageDialog(view,
-                "Por favor, selecciona las celdas de inicio y fin antes de resolver.",
-                "Advertencia", JOptionPane.WARNING_MESSAGE);
+            showMessage("Por favor, selecciona las celdas de inicio y fin antes de resolver paso a paso.", "Advertencia", "WARNING");
             return;
         }
 
-        // Siempre detener cualquier animación automática previa.
-        stopAnimation();
-        // Sincronizar los muros antes de resolver en modo paso a paso
-        syncViewToModelWalls(); 
+        if (!isAnimationRunning) { // Si es la primera ejecución paso a paso
+            // Esto solo se ejecuta una vez al inicio de un nuevo "paso a paso"
+            // Se debe obtener el resultado completo del solver para la animación
+            boolean[][] grid = view.getCellPanelsState();
+            maze.setGrid(grid);
 
-        MazeSolver solver = solversMap.get(solverType);
-        if (solver == null) {
-            JOptionPane.showMessageDialog(view, "Algoritmo de resolución no encontrado.", "Error", JOptionPane.ERROR_MESSAGE);
-            return;
+            MazeSolver solver;
+            switch (algorithmName) {
+                case "Metodo Recursivo" -> solver = new MazeSolverRecursive();
+                case "Metodo Recursivo Completo" -> solver = new MazeSolverRecursiveComplet();
+                case "Metodo Recursivo Completo BT" -> solver = new MazeSolverRecursiveCompletBT();
+                case "Metodo BFS" -> solver = new MazeSolverBFS();
+                case "Metodo DFS" -> solver = new MazeSolverDFS();
+                default -> {
+                    showMessage("Algoritmo no reconocido.", "Error", "ERROR"); return;
+                }
+            }
+
+            long startTime = System.nanoTime();
+            MazeResult result = solver.getPath(maze.getGrid(), startCell, endCell);
+            long endTime = System.nanoTime();
+
+            Set<Cell> visitedSet = result.getVisited();
+            currentVisitedCellsAnimation = new ArrayList<>(visitedSet);
+            currentPathCellsAnimation = result.getPath();
+
+            view.addSolverResult(algorithmName, (currentPathCellsAnimation != null ? currentPathCellsAnimation.size() -1 : -1), (endTime - startTime));
+
+            isAnimationRunning = true; // En modo "paso a paso", esta bandera podría indicar "animación inicializada"
+            animationIndex.set(0);
+            pathAnimationIndex.set(0);
+            visitedIndex.set(0);
+            isAnimatingPathPhase = false;
         }
 
-        // Si no tenemos datos de la animación actual, o si estamos en el primer paso,
-        if (currentVisitedCellsAnimation == null || (animationIndex.get() == 0 && pathAnimationIndex.get() == 0)) {
-             new SwingWorker<MazeResult, Void>() {
-                @Override
-                protected MazeResult doInBackground() throws Exception {
-                    return solver.getPath(maze.getGrid(), startCell, endCell);
-                }
+        // Lógica de avance de la animación
+        animateNextStep();
+    }
 
-                @Override
-                protected void done() {
-                    try {
-                        MazeResult result = get();
-                        currentVisitedCellsAnimation = new ArrayList<>(result.getVisited());
-                        currentPathCellsAnimation = result.getPath();
-
-                        // Ahora que tenemos los datos, animamos el primer paso
-                        animateNextStepForManualMode();
-
-                    } catch (InterruptedException | ExecutionException e) {
-                        JOptionPane.showMessageDialog(view, "Error al obtener el camino para paso a paso: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                    }
-                }
-            }.execute();
-        } else {
-            // Si ya tenemos los datos, simplemente animamos el siguiente paso
-            animateNextStepForManualMode();
-        }
+    /** Muestra un mensaje al usuario. */
+    public void showMessage(String message, String title, String type) {
+        int messageType;
+        messageType = switch (type.toUpperCase()) {
+            case "INFORMATION" -> JOptionPane.INFORMATION_MESSAGE;
+            case "WARNING" -> JOptionPane.WARNING_MESSAGE;
+            case "ERROR" -> JOptionPane.ERROR_MESSAGE;
+            default -> JOptionPane.PLAIN_MESSAGE;
+        };
+        JOptionPane.showMessageDialog(view, message, title, messageType);
     }
 
     /**
-     * Detiene cualquier animación de laberinto que esté actualmente en progreso.
-     * Asegura que el temporizador de animación se detenga.
+     * Detiene la animación SwingWorker actual si está en curso.
+     * Útil para un botón "Detener" o al iniciar una nueva animación.
      */
     public void stopAnimation() {
-        if (animationTimer != null && animationTimer.isRunning()) {
-            animationTimer.stop();
+        if (animationWorker != null && !animationWorker.isDone()) {
+            animationWorker.cancel(true); // true para intentar interrumpir el hilo si está durmiendo
+            showMessage("Animación detenida.", "Información", "INFORMATION");
         }
+        isAnimationRunning = false;
+        isAnimatingPathPhase = false;
     }
 
     /**
@@ -254,8 +379,8 @@ public final class MazeController {
      */
     private void animateNextCell() {
         // Pinta celdas visitadas
-        if (currentVisitedCellsAnimation != null && animationIndex.get() < currentVisitedCellsAnimation.size()) {
-            Cell cellToAnimate = currentVisitedCellsAnimation.get(animationIndex.get());
+        if (!isAnimatingPathPhase && visitedIndex.get() < currentVisitedCellsAnimation.size()) {
+            Cell cellToAnimate = currentVisitedCellsAnimation.get(visitedIndex.get());
             MazeCellPanel panel = view.getCellPanels()[cellToAnimate.getRow()][cellToAnimate.getCol()];
 
             // Solo pinta si no es inicio o fin, y no es un muro
@@ -264,10 +389,15 @@ public final class MazeController {
             }
             panel.revalidate();
             panel.repaint();
-            animationIndex.getAndIncrement();
-        } 
+            visitedIndex.getAndIncrement();
+
+            // Si terminamos de pintar las visitadas, cambiamos a la fase del camino
+            if (visitedIndex.get() >= currentVisitedCellsAnimation.size()) {
+                isAnimatingPathPhase = true;
+            }
+        }
         // Pinta celdas del camino (una vez que todas las visitadas han sido pintadas)
-        else if (currentPathCellsAnimation != null && pathAnimationIndex.get() < currentPathCellsAnimation.size()) {
+        else if (isAnimatingPathPhase && currentPathCellsAnimation != null && pathAnimationIndex.get() < currentPathCellsAnimation.size()) {
             Cell pathCell = currentPathCellsAnimation.get(pathAnimationIndex.get());
             MazeCellPanel panel = view.getCellPanels()[pathCell.getRow()][pathCell.getCol()];
 
@@ -278,7 +408,7 @@ public final class MazeController {
             panel.revalidate();
             panel.repaint();
             pathAnimationIndex.getAndIncrement();
-        } 
+        }
         // Animación terminada
         else {
             stopAnimation(); // Detener el timer si es modo automático
@@ -291,7 +421,10 @@ public final class MazeController {
                     "¡Camino encontrado!",
                     "Éxito", JOptionPane.INFORMATION_MESSAGE);
             }
+            isAnimatingPathPhase = false;
         }
+        view.updateCell(startCell.getRow(), startCell.getCol(), MazeView.START_COLOR);
+        view.updateCell(endCell.getRow(), endCell.getCol(), MazeView.END_COLOR);
     }
 
     /**
@@ -299,7 +432,7 @@ public final class MazeController {
      * Llama a {#animateNextCell()} para pintar la siguiente celda en la secuencia.
      * Muestra un mensaje si no hay celdas para animar.
      */
-    private void animateNextStepForManualMode() {
+    private void animateNextStep() {
         // Asegúrate de que las listas de animación estén cargadas
         if (currentVisitedCellsAnimation == null || (currentVisitedCellsAnimation.isEmpty() && 
             (currentPathCellsAnimation == null || currentPathCellsAnimation.isEmpty()))) {
@@ -316,6 +449,8 @@ public final class MazeController {
     public void resetAnimationIndices() {
         animationIndex.set(0);
         pathAnimationIndex.set(0);
+        visitedIndex.set(0);
+        isAnimatingPathPhase = false;
     }
 
     /**
@@ -329,8 +464,9 @@ public final class MazeController {
         startCell = null;
         endCell = null;
         if(view != null) {
-            view.resetSelectedCells(); 
+            view.resetSelectedCells();
         }
+        isAnimatingPathPhase = false;
     }
 
     /**
@@ -354,7 +490,6 @@ public final class MazeController {
                 } else if (view.getSelectedEndCell() != null && i == view.getSelectedEndCell().getRow() && j == view.getSelectedEndCell().getCol()) {
                     cellPanel.setBackground(MazeView.END_COLOR);
                 }
-                // ¡IMPORTANTE! Si es un obstáculo, píntalo de WALL_COLOR
                 else if (cellPanel.isObstacle()) {
                     cellPanel.setBackground(MazeView.WALL_COLOR);
                 }
@@ -366,6 +501,7 @@ public final class MazeController {
                 cellPanel.repaint();
             }
         }
+        isAnimatingPathPhase = false;
     }
 
 

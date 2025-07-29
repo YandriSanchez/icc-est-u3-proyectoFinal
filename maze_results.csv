@@ -1,0 +1,6 @@
+Algoritmo,Longitud del Camino,Tiempo (ns)
+Metodo Recursivo,15,126000
+Metodo Recursivo Completo,17,149700
+Metodo Recursivo Completo BT,10,165800
+Metodo BFS,10,466000
+Metodo DFS,10,1898500

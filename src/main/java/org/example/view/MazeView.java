@@ -12,6 +12,8 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -61,6 +63,7 @@ public class MazeView extends JFrame {
     private MazeController controller;
 
     private boolean isStepByStepActive = false;
+    private final List<String[]> currentMazeResults = new ArrayList<>();
 
     /**
      * Constructor de MazeView. Inicializa la ventana y sus componentes.
@@ -205,6 +208,13 @@ public class MazeView extends JFrame {
         limpiarButton.addActionListener(e -> onLimpiarAction());
     }
 
+    /** 
+     * Maneja la acción de ver resultados. Abre una nueva ventana de resultados. *
+     */
+    private void onVerResultadosAction() {
+        new ResultsView();
+    }
+
     /** Maneja la acción de crear un nuevo laberinto. */
     private void onNuevoLaberintoAction() {
         System.out.println("Acción: Nuevo Laberinto - Solicitando nuevas dimensiones.");
@@ -233,11 +243,6 @@ public class MazeView extends JFrame {
             );
             System.out.println("Creación de nuevo laberinto cancelada por el usuario.");
         }
-    }
-
-    /** Maneja la acción de ver resultados (funcionalidad no implementada). */
-    private void onVerResultadosAction() {
-        System.out.println("Acción: Ver Resultados (sin acción implementada).");
     }
 
     /** Muestra información "Acerca de" la aplicación y el desarrollador. */
@@ -288,12 +293,15 @@ public class MazeView extends JFrame {
         currentSelectionMode = SelectionMode.OBSTACLE_CELL;
     }
 
-    /** Inicia la resolución del laberinto con el algoritmo seleccionado. */
+    /** Modificar onResolverAction para guardar resultados */
     private void onResolverAction() {
         if (controller != null) {
             controller.resetPathColorsInView();
             controller.resetAnimationIndices();
             isStepByStepActive = false;
+            
+            // Limpiar resultados anteriores antes de resolver un nuevo laberinto
+            currentMazeResults.clear(); 
 
             String selectedAlgorithm = (String) algoritmoComboBox.getSelectedItem();
             controller.startSolvingMaze(selectedAlgorithm);
@@ -332,6 +340,27 @@ public class MazeView extends JFrame {
         } else {
             System.err.println("Error: Controlador no está configurado para la vista.");
         }
+    }
+
+    /**
+     * Añade un resultado de resolución a la lista temporal de la vista.
+     * Se llama después de que un solver completa su ejecución.
+     *
+     * @param methodName Nombre del método solver.
+     * @param pathLength Longitud del camino encontrado (-1 si no hay camino).
+     * @param elapsedTime Tiempo de ejecución en milisegundos.
+     */
+    public void addSolverResult(String methodName, int pathLength, long elapsedTime) {
+        String pathLenStr = (pathLength != -1) ? String.valueOf(pathLength) : "N/A";
+        currentMazeResults.add(new String[]{methodName, pathLenStr, String.valueOf(elapsedTime)});
+        // Si ya se ejecutaron todos los solvers, guardar en CSV
+        // Esto asume que el controlador sabe cuántos solvers debería ejecutar para una resolución completa
+        // O podrías tener un botón "Guardar Resultados de este Laberinto" para hacerlo manualmente.
+        // Por ahora, lo guardamos cada vez que un solver termina si es que se ejecutan todos de una vez.
+        
+        // Simplemente guarda todos los resultados acumulados cada vez que se añade uno.
+        // Esto asegura que el CSV siempre tenga el estado más reciente de la resolución actual.
+        ResultsView.saveResultsToCsv(currentMazeResults); 
     }
 
     /**
