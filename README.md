@@ -51,33 +51,218 @@ El proyecto implementa y compara la eficiencia de varios algoritmos fundamentale
 
 ### 📈 Diagrama UML
 
-[Aquí se agregará el diagrama de clases UML completo que ilustra las relaciones entre los componentes de la aplicación (Main, MazeView, MazeController, Maze, Cell, MazeSolver y sus implementaciones concretas, MazeResult, PerformanceChartPanel, ResultsView).]
+<img width="2972" height="945" alt="Image" src="https://github.com/user-attachments/assets/37f51bfb-0ad7-471f-be59-bbb9a5278bf7" />
 
-*Explicación de los componentes y relaciones del diagrama.*
+### 📘 Explicación del Diagrama UML de Clases
+
+Este diagrama UML representa la arquitectura fundamental de tu aplicación de resolución de laberintos, siguiendo el patrón **Modelo-Vista-Controlador (MVC)**. Nos enfocamos en las interacciones clave entre el Modelo (`Maze`, `Cell`) y el Controlador (`MazeController`), así como en la jerarquía de los algoritmos de resolución.
+
+---
+
+#### 🧩 Componentes (Clases e Interfaces)
+
+##### Main
+- Punto de entrada de la aplicación.
+- Inicializa y configura los componentes del MVC.
+- Conecta `MazeController` con `Maze`.
+
+##### MazeController
+- Funciona como el cerebro de la aplicación.
+- Intermediario entre la vista (no detallada) y el modelo (`Maze`).
+- Maneja eventos del usuario (resolver, seleccionar inicio/fin).
+- Orquesta el proceso de resolución con instancias de `MazeSolver`.
+- Métodos clave:
+  - `startSolvingMaze`
+  - `processAndDisplayResults`
+  - Control de animación y estado del laberinto.
+
+##### Maze
+- Modelo de datos del laberinto.
+- Matriz 2D (`grid`) de booleanos: `true` (camino), `false` (pared).
+- Almacena dimensiones (`rows`, `cols`).
+- Métodos:
+  - `isWall`
+  - `setWall`
+  - `resetGrid`
+
+##### Cell
+- Clase de datos simple que representa una celda.
+- Atributos: `row`, `col`.
+- Métodos: `equals`, `hashCode`.
+
+##### MazeSolver (Interfaz)
+- Contrato común para algoritmos de resolución.
+- Método que define: `getPath`.
+- Permite interacción uniforme con el controlador.
+
+##### MazeResult
+- Encapsula el resultado de la resolución.
+- Contiene:
+  - `List<Cell>` → Camino encontrado.
+  - `Set<Cell>` → Celdas exploradas.
+
+##### MazeSolverBFS, MazeSolverDFS, MazeSolverRecursive, MazeSolverRecursiveComplet, MazeSolverRecursiveCompletBT
+- Implementaciones concretas de `MazeSolver`.
+- Algoritmos de resolución específicos (BFS, DFS, recursivo, etc.).
+
+---
+
+#### 🔗 Relaciones entre Componentes
+
+| Relación | Descripción |
+|---------|-------------|
+| `Main --- MazeController` | Inicialización: `Main` crea instancia del controlador. |
+| `MazeController --- Maze` | Asociación directa, consulta y modifica el modelo. |
+| `MazeController --- MazeSolver` | Uso de interfaz para permitir flexibilidad en algoritmos. |
+| `MazeController ..> Cell` | Dependencia para representar celdas en animaciones. |
+| `Maze *-- Cell` | Composición: el `Maze` está hecho de celdas (`Cell`). |
+| `MazeSolver <|-- MazeSolverBFS` etc. | Implementación de la interfaz `MazeSolver`. |
+| `MazeSolver ---> MazeResult` | Retorno: el método `getPath` devuelve un `MazeResult`. |
+
+---
+
+Este diseño modular permite:
+- Intercambiar algoritmos fácilmente.
+- Mantener separadas las responsabilidades entre modelo, vista y controlador.
+- Expandir la funcionalidad sin romper la arquitectura.
+
 
 ### 📸 Capturas de la Interfaz
 
 #### Ejemplo 1: Laberinto Básico con Solución BFS
 
-[Aquí se insertará una captura de pantalla que demuestre un laberinto simple y el camino encontrado por el algoritmo **BFS**, resaltando las celdas visitadas y el camino final.]
+<img width="784" height="695" alt="Image" src="https://github.com/user-attachments/assets/7261dbc1-c6fa-4471-988c-39abf3294b9d" />
 
 #### Ejemplo 2: Laberinto Complejo con Solución Recursiva
 
-[Aquí se insertará una captura de pantalla que ilustre una estructura de laberinto más compleja y el camino encontrado por el algoritmo **Recursivo**, mostrando su patrón de exploración.]
+<img width="785" height="696" alt="Image" src="https://github.com/user-attachments/assets/80c6acb0-7d86-47a4-8427-372edf8104a5" />
 
 ---
 
 ## 💻 Código Ejemplo de un Algoritmo
 
-[Aquí se agregará el código comentado y explicado de uno de los algoritmos de resolución de laberintos implementados (por ejemplo, DFS, BFS, o uno de los recursivos).]
+```java
+/**
+ * Implementación del algoritmo de resolución de laberintos Depth-First Search (DFS) de forma iterativa.
+ * DFS explora el laberinto lo más profundo posible a lo largo de cada rama antes de retroceder.
+ * Utiliza una pila (Stack) para gestionar las celdas a visitar.
+ * NO garantiza encontrar el camino más corto.
+ */
+public class MazeSolverDFS implements MazeSolver {
+
+  private boolean[][] grid;
+  private Set<Cell> visited;
+  private Map<Cell, Cell> parentMap;
+
+  /**
+   * Calcula y devuelve el resultado de la resolución de un laberinto utilizando el algoritmo DFS iterativo.
+   * Este resultado incluye el camino encontrado (si existe) y todas las celdas visitadas
+   * durante el proceso de búsqueda. El camino encontrado no está garantizado de ser el más corto.
+   *
+   * @param grid La cuadrícula booleana del laberinto, donde 'true' es camino y 'false' es muro.
+   * @param start La celda de inicio desde la cual comenzar la búsqueda.
+   * @param end La celda de destino a la que se debe llegar.
+   * @return Un objeto MazeResult que contiene la lista del camino encontrado y el conjunto de celdas visitadas.
+   */
+  @Override
+  public MazeResult getPath(boolean[][] grid, Cell start, Cell end) {
+    this.grid = grid;
+    this.visited = new LinkedHashSet<>();
+    this.parentMap = new HashMap<>();
+
+    // Validación inicial: si el laberinto es nulo, vacío o las celdas de inicio/fin son nulas
+    if (grid == null || grid.length == 0 || start == null || end == null) {
+      return new MazeResult(new ArrayList<>(), new LinkedHashSet<>());
+    }
+
+    // Pila para DFS: almacena las celdas a explorar
+    Stack<Cell> stack = new Stack<>();
+
+    // Añadir la celda inicial a la pila y marcarla como visitada
+    stack.push(start);
+    visited.add(start);
+
+    boolean found = false;
+
+    // Bucle principal de DFS
+    while (!stack.isEmpty()) {
+      Cell current = stack.pop(); // Saca la celda superior de la pila (LIFO)
+
+      // Si llegamos al destino
+      if (current.equals(end)) {
+        found = true;
+        break; // Salimos del bucle
+      }
+
+      // Explora los vecinos de la celda actual (en cualquier orden, pero este es común para DFS)
+      // El orden de los vecinos puede influir en el camino encontrado por DFS.
+      // Iterar en un orden específico puede simular el comportamiento de tus solvers recursivos.
+      Cell[] neighbors = new Cell[] {
+              new Cell(current.getRow() + 1, current.getCol()), // Abajo
+              new Cell(current.getRow(), current.getCol() + 1), // Derecha
+              new Cell(current.getRow() - 1, current.getCol()), // Arriba
+              new Cell(current.getRow(), current.getCol() - 1)  // Izquierda
+      };
+
+      // Para DFS iterativo, es común procesar los vecinos en orden inverso para que
+      // el primer vecino en ser considerado (por ejemplo, 'abajo') sea el último
+      // en ser añadido a la pila, y por lo tanto, el primero en ser desapilado
+      // Para DFS genérico, el orden no es crítico para la completitud, pero sí para el camino encontrado.
+      for (Cell neighbor : neighbors) {
+        if (isValid(neighbor)) { // Verifica si el vecino es válido y no ha sido visitado
+          visited.add(neighbor); // Marca el vecino como visitado
+          parentMap.put(neighbor, current); // Guarda que 'current' es el padre de 'neighbor'
+          stack.push(neighbor); // Añade el vecino a la pila para explorarlo más tarde
+        }
+      }
+    }
+
+    // Reconstruir el camino si se encontró el destino
+    List<Cell> path = new ArrayList<>();
+    if (found) {
+      Cell current = end;
+      while (current != null) {
+        path.add(0, current); // Añadir al principio para obtener el orden correcto
+        current = parentMap.get(current); // Retrocede usando el mapa de padres
+      }
+    }
+    return new MazeResult(path, visited);
+  }
+
+  /**
+   * Verifica si una celda está dentro de los límites del laberinto, es un camino (no muro)
+   * y no ha sido visitada previamente.
+   *
+   * @param cell La celda a verificar.
+   * @return true si la celda es válida para la exploración, false en caso contrario.
+   */
+  private boolean isValid(Cell cell) {
+    if (!isInMaze(cell)) {
+      return false;
+    }
+    return grid[cell.getRow()][cell.getCol()] && !visited.contains(cell);
+  }
+
+  /**
+   * Verifica si una celda está dentro de los límites de la cuadrícula del laberinto.
+   *
+   * @param cell La celda a verificar.
+   * @return true si la celda está dentro del laberinto, false en caso contrario.
+   */
+  private boolean isInMaze(Cell cell) {
+    int row = cell.getRow();
+    int col = cell.getCol();
+    return row >= 0 && row < grid.length && col >= 0 && col < grid[0].length;
+  }
+}
+```
 
 ---
 
 ## 4. Conclusiones
 
 * **Yandri Eduardo Sánchez Yanza:**
-    * **Análisis del Algoritmo Óptimo:** Tras la implementación y pruebas de los diversos algoritmos (BFS, DFS, Recursivos y sus variantes de Backtracking), he concluido que el **BFS (Búsqueda en Amplitud) es el algoritmo más óptimo para encontrar el camino más corto en laberintos no ponderados**, como los laberintos basados en cuadrícula donde cada paso tiene un costo uniforme de 1. La naturaleza de BFS de explorar el laberinto "capa por capa" asegura que la primera vez que se alcanza la celda final, el camino recorrido es, por definición, el más corto en términos de número de pasos. En contraste, algoritmos como DFS o las implementaciones recursivas, aunque pueden ser computacionalmente eficientes para simplemente *encontrar* cualquier camino, no garantizan la minimización de la longitud del camino. DFS, por ejemplo, podría explorar una ruta muy larga y tortuosa antes de retroceder y encontrar una opción más corta. Las variantes de backtracking, si bien ofrecen diferentes estrategias de exploración, tampoco poseen la propiedad intrínseca de encontrar el camino mínimo que caracteriza a BFS. Por lo tanto, para escenarios donde la longitud del camino es una métrica crítica, BFS se posiciona como la elección superior.
-
+    * Análisis del Algoritmo Óptimo del Grupo de Algoritmos: A raíz del desarrollo e implementación realizado, junto con la evaluación de cada uno de los algoritmos que en el desarrollo se mostraron (algoritmos BFS, DFS, Recursivos y sus variantes de Backtracking), he llegado a la conclusión de que el **BFS (Breadth First Search - Búsqueda en Amplitud) es el algoritmo más óptimo para encontrar el camino mínimo en laberintos no ponderados**. Para laberintos basados en cuadrícula donde el coste por cada paso es uniforme (1), el algoritmo BFS cumple la condición de ser el más óptimo dado que el laberinto se explora "capa a capa" y la primera vez que se alcanza la celda final (la meta) será, por definición, el camino más corto (en número de pasos); contrario a otros tipos de algoritmos (DFS o recursivos) que, aunque puedan resultar computacionalmente más eficientes para simplemente *encontrar* un camino, no garantizan la corteza de la longitud del camino; como, por ejemplo, en el caso de DFS, en el que la ruta puede ser muy larga y tortuosa antes de volver atrás y encontrar una opción más corta. Igualmente, variaciones del backtracking (con las que se pueden establecer diferentes estrategias de exploración) no cuentan con la propiedad de encontrar el camino mínimo que caracteriza al BFS. Por tanto, en la misma línea, para un caso en el que la longitud del camino sea una métrica a tener en consideración, el BFS es, de lejos, una opción superior.
 ---
 
 ## 5. Recomendaciones y Aplicaciones Futuras
