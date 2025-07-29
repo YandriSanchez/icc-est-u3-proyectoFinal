@@ -1,12 +1,12 @@
 package org.example.solver;
 
 import java.util.ArrayList;
-import java.util.HashMap; // Usaremos LinkedList para implementar la Queue
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
-import java.util.List; // Para mantener el orden de visita si es importante
+import java.util.List;
 import java.util.Map;
-import java.util.Queue; // Para reconstruir el camino
+import java.util.Queue;
 import java.util.Set;
 
 import org.example.model.Cell;
@@ -21,19 +21,28 @@ import org.example.model.MazeSolver;
 public class MazeSolverBFS implements MazeSolver {
 
     private boolean[][] grid;
-    private Set<Cell> visited; // Conjunto para almacenar todas las celdas visitadas
-    private Map<Cell, Cell> parentMap; // Mapa para reconstruir el camino desde el final al inicio
+    private Set<Cell> visited;
+    private Map<Cell, Cell> parentMap;
 
+    /**
+     * Calcula y devuelve el resultado de la resolución de un laberinto utilizando el algoritmo BFS.
+     * Este resultado incluye el camino más corto encontrado (si existe) y todas las celdas visitadas
+     * durante el proceso de búsqueda.
+     *
+     * @param grid La cuadrícula booleana del laberinto, donde 'true' es camino y 'false' es muro.
+     * @param start La celda de inicio desde la cual comenzar la búsqueda.
+     * @param end La celda de destino a la que se debe llegar.
+     * @return Un objeto MazeResult que contiene la lista del camino encontrado y el conjunto de celdas visitadas.
+     */
     @Override
     public MazeResult getPath(boolean[][] grid, Cell start, Cell end) {
-        // Reiniciamos las estructuras de datos para cada nueva búsqueda
         this.grid = grid;
-        this.visited = new LinkedHashSet<>(); // LinkedHashSet para mantener el orden de visita para visualización
-        this.parentMap = new HashMap<>(); // Almacena el padre de cada celda para reconstruir el camino
+        this.visited = new LinkedHashSet<>();
+        this.parentMap = new HashMap<>();
 
-        // Verificaciones básicas del laberinto
+        // Validación inicial: si el laberinto es nulo, vacío o las celdas de inicio/fin son nulas
         if (grid == null || grid.length == 0 || start == null || end == null) {
-            return new MazeResult(new ArrayList<>(), new LinkedHashSet<>()); // Retorna vacío si el laberinto es inválido
+            return new MazeResult(new ArrayList<>(), new LinkedHashSet<>());
         }
 
         // Cola para BFS: almacena las celdas a explorar
@@ -52,7 +61,7 @@ public class MazeSolverBFS implements MazeSolver {
             // Si llegamos al destino, hemos encontrado el camino más corto
             if (current.equals(end)) {
                 found = true;
-                break; // Salimos del bucle
+                break;
             }
 
             // Explora los vecinos de la celda actual (arriba, abajo, izquierda, derecha)
@@ -79,7 +88,7 @@ public class MazeSolverBFS implements MazeSolver {
         if (found) {
             Cell current = end;
             while (current != null) {
-                path.add(0, current); // Añadir al principio para obtener el orden correcto
+                path.add(0, current); 
                 current = parentMap.get(current); // Retrocede usando el mapa de padres
             }
         }
@@ -91,19 +100,20 @@ public class MazeSolverBFS implements MazeSolver {
     /**
      * Verifica si una celda está dentro de los límites del laberinto, es un camino (no muro)
      * y no ha sido visitada previamente.
+     *
      * @param cell La celda a verificar.
      * @return true si la celda es válida para la exploración, false en caso contrario.
      */
     private boolean isValid(Cell cell) {
         if (!isInMaze(cell)) {
-            return false; // Fuera de los límites del laberinto
+            return false;
         }
-        // Verifica si es un muro (grid[row][col] == false) o si ya fue visitada
         return grid[cell.getRow()][cell.getCol()] && !visited.contains(cell);
     }
 
     /**
-     * Verifica si una celda está dentro de los límites del laberinto.
+     * Verifica si una celda está dentro de los límites de la cuadrícula del laberinto.
+     *
      * @param cell La celda a verificar.
      * @return true si la celda está dentro del laberinto, false en caso contrario.
      */

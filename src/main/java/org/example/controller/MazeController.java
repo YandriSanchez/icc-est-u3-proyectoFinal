@@ -1,11 +1,12 @@
 package org.example.controller;
 
-import java.awt.Color;
+import java.awt.HeadlessException;
+import java.awt.event.ActionEvent;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.awt.event.*;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.JOptionPane;
@@ -19,30 +20,49 @@ import org.example.model.MazeSolver;
 import org.example.solver.MazeSolverBFS;
 import org.example.solver.MazeSolverDFS;
 import org.example.solver.MazeSolverRecursive;
-import org.example.solver.MazeSolverRecursiveComplet; // Para el índice de animación
+import org.example.solver.MazeSolverRecursiveComplet;
 import org.example.solver.MazeSolverRecursiveCompletBT;
 import org.example.view.MazeCellPanel;
 import org.example.view.MazeView;
 
+/**
+ * <p>La clase {MazeController} actúa como el cerebro de la aplicación del laberinto,
+ * manejando la lógica de interacción entre la vista ({MazeView}) y el modelo ({Maze},
+ * {MazeSolver}).</p>
+ * <p>Es responsable de:</p>
+ * <ul>
+ * <li>Inicializar y gestionar el estado del laberinto (muros, celdas de inicio/fin).</li>
+ * <li>Coordinar la resolución del laberinto utilizando diferentes algoritmos.</li>
+ * <li>Controlar la visualización animada de los procesos de búsqueda de caminos.</li>
+ * <li>Responder a las acciones del usuario, como seleccionar celdas o iniciar la resolución.</li>
+ * </ul>
+ */
+public final class MazeController {
 
-public class MazeController {
-
-    private MazeView view;
+    private final MazeView view;
     private Maze maze;
 
     private Cell startCell;
     private Cell endCell;
 
-    private Map<String, MazeSolver> solversMap;
+    private final Map<String, MazeSolver> solversMap;
 
-    // --- Nuevas variables para la animación y el modo "Paso a Paso" ---
+    // Listas para la animación
     public List<Cell> currentVisitedCellsAnimation;
     public List<Cell> currentPathCellsAnimation;
     public AtomicInteger animationIndex;
     public AtomicInteger pathAnimationIndex;
     private Timer animationTimer;
-    private final int ANIMATION_DELAY_MS = 150;// Retraso en milisegundos
+    private final int ANIMATION_DELAY_MS = 130;// Retraso en milisegundos
 
+    /**
+     * Construye una nueva instancia de {MazeController}.
+     * Inicializa la vista del laberinto, el modelo del laberinto y los solucionadores disponibles.
+     *
+     * @param view La instancia de {MazeView} asociada a este controlador.
+     * @param initialRows El número inicial de filas para el laberinto.
+     * @param initialCols El número inicial de columnas para el laberinto.
+     */
     public MazeController(MazeView view, int initialRows, int initialCols) {
         this.view = view;
         this.maze = new Maze(new boolean[initialRows][initialCols]);
@@ -56,9 +76,15 @@ public class MazeController {
         solversMap.put("Metodo BFS", new MazeSolverBFS());
 
         this.animationIndex = new AtomicInteger(0);
-        this.pathAnimationIndex = new AtomicInteger(0); // Asegúrate de que este esté inicializado
+        this.pathAnimationIndex = new AtomicInteger(0);
     }
 
+    /**
+     * Inicializa la cuadrícula del laberinto con todas las celdas como caminos (no muros).
+     *
+     * @param rows El número de filas de la nueva cuadrícula.
+     * @param cols El número de columnas de la nueva cuadrícula.
+     */
     public void initializeMazeGrid(int rows, int cols) {
         boolean[][] newGrid = new boolean[rows][cols];
         for (int i = 0; i < rows; i++) {
@@ -69,10 +95,11 @@ public class MazeController {
         this.maze.setGrid(newGrid);
     }
 
-    // --- Métodos de Acción ---
-
     /**
      * Inicia el proceso de resolución y visualización del laberinto en modo AUTOMÁTICO.
+     * Muestra celdas visitadas y, si se encuentra, el camino.
+     * Si no se selecciona inicio o fin, muestra una advertencia.
+     *
      * @param solverType El nombre del algoritmo seleccionado (ej. "BFS", "Metodo Recursivo").
      */
     public void startSolvingMaze(String solverType) {
@@ -112,25 +139,27 @@ public class MazeController {
                     animationIndex.set(0);
                     pathAnimationIndex.set(0); 
 
-                    // Inicia el timer para la animación automática
-                    if (!currentVisitedCellsAnimation.isEmpty()) { // Siempre se debe animar las visitadas
-                        animationTimer = new Timer(ANIMATION_DELAY_MS, new ActionListener() {
-                            @Override
-                            public void actionPerformed(ActionEvent e) {
-                                animateNextCell();
-                            }
+                    // Detiene cualquier animación anterior si está corriendo
+                    if (animationTimer != null && animationTimer.isRunning()) {
+                        animationTimer.stop();
+                    }
+
+                    // Inicia el timer para la animación automática SIEMPRE que haya celdas visitadas.
+                    // Si currentVisitedCellsAnimation está vacío, simplemente el timer no animará nada
+                    // y el JOptionPane de "Sin Exploración" o "Sin Camino" se manejará
+                    // en el método animateNextCell() cuando se determine que no hay más celdas que pintar.
+                    if (!currentVisitedCellsAnimation.isEmpty()) {
+                        animationTimer = new Timer(ANIMATION_DELAY_MS, (ActionEvent e) -> {
+                            animateNextCell();
                         });
                         animationTimer.start();
                     } else {
-                        // Si no se visitó ninguna celda (por ejemplo, inicio = fin o muro al lado)
-                        if (currentPathCellsAnimation == null || currentPathCellsAnimation.isEmpty()) {
-                            JOptionPane.showMessageDialog(view,
-                                "No se encontró un camino desde el inicio hasta el fin.",
-                                "Sin Camino", JOptionPane.INFORMATION_MESSAGE);
-                        }
+                        // Si currentVisitedCellsAnimation está vacío, llama a animateNextCell una vez
+                        // para que maneje el mensaje de "sin exploración" o "sin camino"
+                        // si no hay nada que animar.
+                        animateNextCell(); 
                     }
-                } catch (Exception e) {
-                    e.printStackTrace();
+                } catch (HeadlessException | InterruptedException | ExecutionException e) {
                     JOptionPane.showMessageDialog(view, "Error al resolver el laberinto: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
                 }
             }
@@ -141,7 +170,8 @@ public class MazeController {
      * Realiza un solo paso de la animación del laberinto en modo "Paso a Paso".
      * Recalcula el camino si es la primera vez o si los índices se resetearon,
      * y luego pinta la siguiente celda en la secuencia. Las celdas se acumulan.
-     * @param solverType El nombre del algoritmo a usar.
+     *
+     * @param solverType El nombre del algoritmo a usar (ej. "DFS", "BFS").
      */
     public void performSingleStep(String solverType) {
         if (startCell == null || endCell == null) {
@@ -153,11 +183,6 @@ public class MazeController {
 
         // Siempre detener cualquier animación automática previa.
         stopAnimation();
-
-        // ¡IMPORTANTE! resetPathColorsInView() NO SE LLAMA AQUÍ.
-        // Esto permite que las celdas se acumulen con cada clic de "Paso a Paso".
-        // La limpieza completa solo la hará el botón "Limpiar Laberinto".
-
         // Sincronizar los muros antes de resolver en modo paso a paso
         syncViewToModelWalls(); 
 
@@ -167,10 +192,8 @@ public class MazeController {
             return;
         }
 
-        // Si es la primera vez que se presiona "Paso a Paso" o si los índices se resetearon,
-        // necesitamos ejecutar el solver para obtener las listas de celdas.
-        // Esto evita recalcular el laberinto en cada paso si ya lo tenemos.
-        if (currentVisitedCellsAnimation == null || animationIndex.get() == 0 && pathAnimationIndex.get() == 0) {
+        // Si no tenemos datos de la animación actual, o si estamos en el primer paso,
+        if (currentVisitedCellsAnimation == null || (animationIndex.get() == 0 && pathAnimationIndex.get() == 0)) {
              new SwingWorker<MazeResult, Void>() {
                 @Override
                 protected MazeResult doInBackground() throws Exception {
@@ -187,8 +210,7 @@ public class MazeController {
                         // Ahora que tenemos los datos, animamos el primer paso
                         animateNextStepForManualMode();
 
-                    } catch (Exception e) {
-                        e.printStackTrace();
+                    } catch (InterruptedException | ExecutionException e) {
                         JOptionPane.showMessageDialog(view, "Error al obtener el camino para paso a paso: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
                     }
                 }
@@ -199,7 +221,10 @@ public class MazeController {
         }
     }
 
-    // El método stopAnimation() se mantiene igual:
+    /**
+     * Detiene cualquier animación de laberinto que esté actualmente en progreso.
+     * Asegura que el temporizador de animación se detenga.
+     */
     public void stopAnimation() {
         if (animationTimer != null && animationTimer.isRunning()) {
             animationTimer.stop();
@@ -207,8 +232,8 @@ public class MazeController {
     }
 
     /**
-     * Avanza un paso en la animación del laberinto.
-     * Llamado por el botón "Paso a Paso".
+     * Avanza un paso en la animación del laberinto, típicamente llamado por un botón "Paso a Paso".
+     * Si no se han cargado datos de animación, solicita al usuario que inicie la resolución.
      */
     public void stepAnimation() {
         if (currentVisitedCellsAnimation == null || animationIndex == null) {
@@ -218,7 +243,6 @@ public class MazeController {
 
         // Asegurarse de que no estamos en modo automático
         stopAnimation(); // Detener cualquier timer si por alguna razón sigue corriendo
-
         animateNextCell();
     }
 
@@ -226,6 +250,7 @@ public class MazeController {
     /**
      * Lógica compartida para animar la siguiente celda en modo automático o manual.
      * Primero pinta las celdas visitadas, luego las del camino.
+     * Al finalizar la animación, muestra un mensaje indicando si se encontró un camino o no.
      */
     private void animateNextCell() {
         // Pinta celdas visitadas
@@ -259,7 +284,7 @@ public class MazeController {
             stopAnimation(); // Detener el timer si es modo automático
             if (currentPathCellsAnimation == null || currentPathCellsAnimation.isEmpty()) {
                 JOptionPane.showMessageDialog(view,
-                    "No se encontró un camino desde el inicio hasta el fin.",
+                    "No se encontró un camino, se muestran las celdas exploradas.",
                     "Sin Camino", JOptionPane.INFORMATION_MESSAGE);
             } else {
                 JOptionPane.showMessageDialog(view,
@@ -271,50 +296,48 @@ public class MazeController {
 
     /**
      * Método auxiliar para animar el siguiente paso en el modo "Paso a Paso".
-     * Simplemente llama a animateNextCell, ya que currentVisitedCellsAnimation y
-     * currentPathCellsAnimation ya deben estar cargados.
+     * Llama a {#animateNextCell()} para pintar la siguiente celda en la secuencia.
+     * Muestra un mensaje si no hay celdas para animar.
      */
     private void animateNextStepForManualMode() {
         // Asegúrate de que las listas de animación estén cargadas
-        if (currentVisitedCellsAnimation == null || currentVisitedCellsAnimation.isEmpty() && 
-            (currentPathCellsAnimation == null || currentPathCellsAnimation.isEmpty())) {
+        if (currentVisitedCellsAnimation == null || (currentVisitedCellsAnimation.isEmpty() && 
+            (currentPathCellsAnimation == null || currentPathCellsAnimation.isEmpty()))) {
             JOptionPane.showMessageDialog(view, "No hay celdas para animar. Verifica si se encontró un camino o celdas visitadas.", "Información", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         animateNextCell();
     }
 
+    /**
+     * Restablece los índices de la animación a cero.
+     * Esto prepara el controlador para una nueva animación desde el inicio.
+     */
     public void resetAnimationIndices() {
         animationIndex.set(0);
         pathAnimationIndex.set(0);
     }
 
-    // El método resetMaze() (para el botón "Limpiar") se mantiene como lo definimos:
-    // borrará TODO, incluyendo obstáculos, si es su intención.
-    // Si "Limpiar" solo debe borrar la solución, este método debería ser más simple
-    // (solo llamar a resetPathColorsInView() y resetear inicio/fin).
+    /**
+     * Restablece el laberinto a su estado inicial, eliminando cualquier camino o celdas visitadas
+     * y restableciendo las celdas de inicio y fin. Los muros permanecen.
+     */
     public void resetMaze() {
         resetPathColorsInView(); // Esto despinta la solución y respeta obstáculos
         resetAnimationIndices();
 
-        // Opcional: Si limpiar significa borrar también los obstáculos
-        // int rows = maze.getGrid().length;
-        // int cols = maze.getGrid()[0].length;
-        // maze = new Maze(new boolean[rows][cols]);
-        // initializeMazeGrid(rows, cols); // Reinicia el modelo a solo caminos
-
         startCell = null;
         endCell = null;
         if(view != null) {
-            view.resetSelectedCells(); // Asegúrate de que este método en MazeView resetea visualmente las celdas de inicio/fin
-            // Y si resetMaze no borra obstáculos del modelo, la vista debe recorrer los paneles
-            // y si no son inicio/fin, y eran obstáculos, dejarlos como estaban.
-            // O, si se borran del modelo, también borrarlos de la vista.
+            view.resetSelectedCells(); 
         }
     }
 
-    // El método resetPathColorsInView() es CRÍTICO para no borrar los obstáculos
-    // Asegúrate de que siga siendo como te lo he mostrado antes, respetando cellPanel.isObstacle()
+    /**
+     * Restablece los colores de todas las celdas en la vista del laberinto a sus colores por defecto,
+     * respetando las celdas de inicio, fin y los muros.
+     * Detiene cualquier animación en curso.
+     */
     public void resetPathColorsInView() {
         stopAnimation();
         if (view == null) return;
@@ -347,9 +370,9 @@ public class MazeController {
 
 
     /**
-     * Sincroniza el estado de las paredes del MazeView al Maze del controlador.
+     * Sincroniza el estado de las paredes del {MazeView} con el modelo {Maze} del controlador.
      * Esto es crucial antes de resolver para que el algoritmo trabaje con el laberinto
-     * tal como el usuario lo ha dibujado.
+     * tal como el usuario lo ha dibujado en la interfaz.
      */
     public void syncViewToModelWalls() {
         boolean[][] currentViewGrid = view.getCellPanelsState();
@@ -359,28 +382,58 @@ public class MazeController {
         }
     }
 
+    /**
+     * Obtiene la celda de inicio actualmente seleccionada.
+     *
+     * @return La celda de inicio.
+     */
     public Cell getStartCell() {
         return startCell;
     }
 
+    /**
+     * Establece la celda de inicio para la resolución del laberinto.
+     *
+     * @param startCell La celda a establecer como inicio.
+     */
     public void setStartCell(Cell startCell) {
         this.startCell = startCell;
         System.out.println("Controlador: Celda de inicio fijada a " + startCell);
     }
 
+    /**
+     * Obtiene la celda de fin actualmente seleccionada.
+     *
+     * @return La celda de fin.
+     */
     public Cell getEndCell() {
         return endCell;
     }
 
+    /**
+     * Establece la celda de fin para la resolución del laberinto.
+     *
+     * @param endCell La celda a establecer como fin.
+     */
     public void setEndCell(Cell endCell) {
         this.endCell = endCell;
         System.out.println("Controlador: Celda de fin fijada a " + endCell);
     }
 
+    /**
+     * Obtiene el objeto {Maze} actualmente gestionado por el controlador.
+     *
+     * @return El objeto {Maze}.
+     */
     public Maze getMaze() {
         return maze;
     }
 
+    /**
+     * Establece un nuevo objeto {Maze} para el controlador.
+     *
+     * @param maze El nuevo objeto {Maze} a establecer.
+     */
     public void setMaze(Maze maze) {
         this.maze = maze;
     }
